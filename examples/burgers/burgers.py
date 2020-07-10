@@ -1,7 +1,8 @@
-""" Solving the Burgers' Equation using a 4th Runge-Kutta method """
+""" Solving the Burgers' Equation using a 4th order Runge-Kutta method """
 
 import numpy as np
 import matplotlib.pyplot as plt
+
 
 def rk4(f, u, t, dx, h):
     """
@@ -64,30 +65,28 @@ def burgers(x0, xN, N, t0, tK, K):
     h = 2e-6  # time step for runge-kutta method
 
     u = np.zeros(shape=(K, N))
-    #u[0,:] = 1 + 0.5*np.exp(-(x**2))  # compute u at initial time step
-    u[0,:] = -np.sin(np.pi*x)
+    # u[0, :] = 1 + 0.5*np.exp(-(x**2))  # compute u at initial time step
+    u[0, :] = -np.sin(np.pi*x)
 
     for idx in range(K-1):  # for each temporal point perform runge-kutta method
         ti = t0 + dt*idx
-        U = u[idx,:]
+        U = u[idx, :]
 
         for step in range(1000):
             t = ti + h*step
             U = rk4(f, U, t, dx, h)
 
-        u[idx+1,:] = U
+        u[idx+1, :] = U
 
-    print(u.shape)
-
-    #plt.imshow(u, extent=[x0, xN, t0, tK])
-    plt.imshow(np.rot90(u), extent=[t0, tK, x0, xN])
+    # plt.imshow(u, extent=[x0, xN, t0, tK])
+    plt.imshow(u.T, interpolation='nearest', cmap='rainbow',
+               extent=[t0, tK, x0, xN], origin='lower', aspect='auto')
     plt.xlabel('t')
     plt.ylabel('x')
     plt.colorbar()
-    make_square_axis(plt.gca())
     plt.show()
 
 
 if __name__ == '__main__':
-    #burgers(-10, 10, 1024, 0, 50, 500)
+    # burgers(-10, 10, 1024, 0, 50, 500)
     burgers(-1, 1, 512, 0, 1, 500)

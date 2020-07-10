@@ -1,7 +1,8 @@
-""" Solving the Non-Linear Schrodinger Equation using a 4th Runge-Kutta method """
+""" Solving the Non-Linear Schrodinger Equation using a 4th order Runge-Kutta method """
 
 import numpy as np
 import matplotlib.pyplot as plt
+
 
 def rk4(f, u, t, dx, h):
     """
@@ -49,41 +50,49 @@ def d2udx2(u, dx):
     return second_deriv
 
 
-def f(u, t, dx, nu=0.01/np.pi):
-    return -u*dudx(u, dx) + nu*d2udx2(u, dx)
+def f(u, t, dx):
+    real = -0.5*d2udx2(u[:, 1], dx) - (u[:, 0]**2 + u[:, 1]**2)*u[:, 1]
+    imaginary = 0.5*d2udx2(u[:, 0], dx) + (u[:, 0]**2 + u[:, 1]**2)*u[:, 0]
+
+    return np.hstack((real[:, None], imaginary[:, None]))
+
+
+def sech(x):
+    return 1. / np.cosh(x)
 
 
 def make_square_axis(ax):
     ax.set_aspect(1 / ax.get_data_ratio())
 
 
-def burgers(x0, xN, N, t0, tK, K):
+def schrodinger(x0, xN, N, t0, tK, K):
     x = np.linspace(x0, xN, N)  # evenly spaced spatial points
     dx = (xN - x0) / float(N - 1)  # space between each spatial point
     dt = (tK - t0) / float(K)  # space between each temporal point
-    h = 1e-4  # time step for runge-kutta method
+    h = np.pi * 1e-6  # time step for runge-kutta method
 
-    u = np.zeros(shape=(K, N))
-    #u[0,:] = 1 + 0.5*np.exp(-(x**2))  # compute u at initial time step
-    u[0,:] = -np.sin(np.pi*x)
+    U = np.zeros(shape=(K, N, 2))
+    U[0, :, 0] = 2. * sech(x)  # initial condition real component
 
     for idx in range(K-1):  # for each temporal point perform runge-kutta method
         ti = t0 + dt*idx
-        U = u[idx,:]
+        u = U[idx, :, :]
 
         for step in range(1000):
             t = ti + h*step
-            U = rk4(f, U, t, dx, h)
+            u = rk4(f, u, t, dx, h)
 
-        u[idx+1,:] = U
+        U[idx+1, :, :] = u
 
-    print(u)
+    H = np.sqrt(U[:, :, 0]**2 + U[:, :, 1]**2)
 
-    plt.imshow(u, extent=[x0, xN, t0, tK])
-    make_square_axis(plt.gca())
+    plt.imshow(H.T, interpolation='nearest', cmap='YlGnBu',
+               extent=[t0, tK, x0, xN], origin='lower', aspect='auto')
+    plt.xlabel('t')
+    plt.ylabel('x')
+    plt.colorbar()
     plt.show()
 
 
 if __name__ == '__main__':
-    #burgers(-10, 10, 1024, 0, 50, 500)
-    burgers(-1, 1, 512, 0, 1, 500)
+    schrodinger(-5, 5, 1024, 0, np.pi/2., 500)
