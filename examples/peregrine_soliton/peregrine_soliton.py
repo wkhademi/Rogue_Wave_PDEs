@@ -1,4 +1,4 @@
-""" Solving the Non-Linear Schrodinger Equation using a 4th order Runge-Kutta method """
+""" Solving the Peregrine Soliton Equation using a 4th order Runge-Kutta method """
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -57,22 +57,30 @@ def f(u, t, dx):
     return np.hstack((real[:, None], imaginary[:, None]))
 
 
-def sech(x):
-    return 1. / np.cosh(x)
-
-
-def make_square_axis(ax):
-    ax.set_aspect(1 / ax.get_data_ratio())
-
-
 def schrodinger(x0, xN, N, t0, tK, K):
     x = np.linspace(x0, xN, N)  # evenly spaced spatial points
+    t = np.linspace(t0, tK, K+1)  # evenly spaced temporal points
     dx = (xN - x0) / float(N - 1)  # space between each spatial point
     dt = (tK - t0) / float(K)  # space between each temporal point
-    h = np.pi/4 * 1e-5  # time step for runge-kutta method
+    h = 1e-5  # time step for runge-kutta method
 
     U = np.zeros(shape=(K+1, N, 2))
-    U[0, :, 0] = 2. * sech(x)  # initial condition real component
+    U_exact = np.zeros(shape=(K+1, N, 2))
+    X, T = np.meshgrid(x, t)
+
+    # compute exact solution to the peregrine soliton
+    U_exact[:, :, 0] = np.cos(T) - ((4*np.cos(T) - 8*T*np.sin(T)) / (1 + 4*(T**2) + 4*(X**2)))
+    U_exact[:, :, 1] = np.sin(T) - ((4*np.sin(T) + 8*T*np.cos(T)) / (1 + 4*(T**2) + 4*(X**2)))
+    H_exact = np.sqrt(U_exact[:, :, 0]**2 + U_exact[:, :, 1]**2)
+
+    with open('peregrine_soliton_data.npy', 'wb') as solution_file:
+        np.save(solution_file, U_exact)
+
+    # initial condition for real part of numerical solution to peregrine soliton equation
+    U[0, :, 0] = np.cos(t0) - ((4*np.cos(t0) - 8*t0*np.sin(t0)) / (1 + 4*(t0**2) + 4*(x**2)))
+
+    # initial condition for imaginary part of numerical solution to peregrine soliton equation
+    U[0, :, 1] = np.sin(t0) - ((4*np.sin(t0) + 8*t0*np.cos(t0)) / (1 + 4*(t0**2) + 4*(x**2)))
 
     for idx in range(K):  # for each temporal point perform runge-kutta method
         ti = t0 + dt*idx
@@ -86,13 +94,39 @@ def schrodinger(x0, xN, N, t0, tK, K):
 
     H = np.sqrt(U[:, :, 0]**2 + U[:, :, 1]**2)
 
-    plt.imshow(H.T, interpolation='nearest', cmap='YlGnBu',
-               extent=[t0, tK, x0, xN], origin='lower', aspect='auto')
-    plt.xlabel('t')
-    plt.ylabel('x')
+    rel_error = np.linalg.norm(H_exact - H, 2) / np.linalg.norm(H_exact, 2)
+    print('Relative error: {}'.format(rel_error))
+
+    error = np.linalg.norm(H_exact[600,:] - H[600,:], 2) / np.linalg.norm(H_exact[600,:], 2)
+    print('Error at t=0: {}'.format(error))
+
+    plt.plot(x, H[600,:])
+    plt.xlabel('$x$')
+    plt.ylabel('$|h(x,t=0)|$')
+    plt.show()
+
+    plt.contourf(X, T, H_exact, cmap='rainbow', origin='lower')
+    plt.title('$|h(x,t)|$')
+    plt.xlabel('$x$')
+    plt.ylabel('$t$')
+    plt.colorbar()
+    plt.show()
+
+    plt.contourf(X, T, H, cmap='rainbow', origin='lower')
+    plt.title('$|h(x,t)|$')
+    plt.xlabel('$x$')
+    plt.ylabel('$t$')
+    plt.colorbar()
+    plt.show()
+
+    plt.imshow(H, interpolation='nearest', cmap='rainbow',
+               extent=[x0, xN, t0, tK], origin='lower', aspect='auto')
+    plt.title('$|h(x,t)|$')
+    plt.xlabel('$x$')
+    plt.ylabel('$t$')
     plt.colorbar()
     plt.show()
 
 
 if __name__ == '__main__':
-    schrodinger(-5, 5, 257, 0, np.pi/2., 200)
+    schrodinger(-100, 100, 4001, -6, 6, 1200)
