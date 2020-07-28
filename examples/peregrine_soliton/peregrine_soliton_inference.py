@@ -11,6 +11,7 @@ Papers:
     2) https://arxiv.org/pdf/1711.10566.pdf
 """
 
+import sys
 import time
 import scipy.io
 import numpy as np
@@ -28,6 +29,7 @@ tf.set_random_seed(1234)
 class PhysicsInformedNN:
     # Initialize the class
     def __init__(self, x0, u0, v0, tb, X_f, layers, lb, ub):
+        self.idx = 0
 
         X0 = np.concatenate((x0, 0*x0), 1)  # (x0, 0)
         X_lb = np.concatenate((0*tb + lb[0], tb), 1)  # (lb[0], tb)
@@ -162,10 +164,10 @@ class PhysicsInformedNN:
         return f_u, f_v
 
     def callback(self, loss):
-        print('Loss:', loss)
+        print('Iteration {} - Loss: {}'.format(str(self.idx), str(loss)))
+        self.idx += 1
 
     def train(self, nIter):
-
         tf_dict = {self.x0_tf: self.x0, self.t0_tf: self.t0,
                    self.u0_tf: self.u0, self.v0_tf: self.v0,
                    self.x_lb_tf: self.x_lb, self.t_lb_tf: self.t_lb,
@@ -202,40 +204,37 @@ class PhysicsInformedNN:
 
 
 if __name__ == "__main__":
-    noise = 0.0
-
-    # Doman bounds
-    lb = np.array([-5.0, 0.0])
-    ub = np.array([5.0, np.pi/2])
+    lb = np.array([-7.5, -2.0])
+    ub = np.array([7.5, 2.0])
 
     N0 = 50
     N_b = 50
     N_f = 20000
     layers = [2, 100, 100, 100, 100, 2]
 
-    data = scipy.io.loadmat('../Data/NLS.mat')
+    with open('peregrine_soliton_data.npz', 'rb') as solution_file:
+        data = np.load(solution_file)
+        t = data['t'][400:801:2,None]  # t in [-2,2]
+        x = data['x'][1850:2151,None]  # x in [-7.5, 7.5]
+        Exact = data['U'][400:801:2,1850:2151]
 
-    t = data['tt'].flatten()[:,None]
-    x = data['x'].flatten()[:,None]
-    Exact = data['uu']
-    Exact_u = np.real(Exact)
-    Exact_v = np.imag(Exact)
+    Exact_u = Exact[:,:,0]
+    Exact_v = Exact[:,:,1]
     Exact_h = np.sqrt(Exact_u**2 + Exact_v**2)
-    print(x)
 
     X, T = np.meshgrid(x,t)
 
     X_star = np.hstack((X.flatten()[:,None], T.flatten()[:,None]))
-    u_star = Exact_u.T.flatten()[:,None]
-    v_star = Exact_v.T.flatten()[:,None]
-    h_star = Exact_h.T.flatten()[:,None]
+    u_star = Exact_u.flatten()[:,None]
+    v_star = Exact_v.flatten()[:,None]
+    h_star = Exact_h.flatten()[:,None]
 
-    ###########################
+    ########################## Train neural network ############################
 
     idx_x = np.random.choice(x.shape[0], N0, replace=False)
     x0 = x[idx_x,:]
-    u0 = Exact_u[idx_x,0:1]
-    v0 = Exact_v[idx_x,0:1]
+    u0 = Exact_u[0:1,idx_x].T
+    v0 = Exact_v[0:1,idx_x].T
 
     idx_t = np.random.choice(t.shape[0], N_b, replace=False)
     tb = t[idx_t,:]
@@ -249,84 +248,38 @@ if __name__ == "__main__":
     elapsed = time.time() - start_time
     print('Training time: %.4f' % (elapsed))
 
+    ################### Predict solution and compute error #####################
 
     u_pred, v_pred, f_u_pred, f_v_pred = model.predict(X_star)
     h_pred = np.sqrt(u_pred**2 + v_pred**2)
+    H_pred = griddata(X_star, h_pred.flatten(), (X, T), method='cubic')
 
     error_u = np.linalg.norm(u_star-u_pred,2)/np.linalg.norm(u_star,2)
     error_v = np.linalg.norm(v_star-v_pred,2)/np.linalg.norm(v_star,2)
     error_h = np.linalg.norm(h_star-h_pred,2)/np.linalg.norm(h_star,2)
+    error_H = np.linalg.norm(Exact_h[100,:]-H_pred[100,:],2)/np.linalg.norm(Exact_h[100,:],2)
+
     print('Error u: %e' % (error_u))
     print('Error v: %e' % (error_v))
     print('Error h: %e' % (error_h))
+    print('Error at time step = 0: %e' % (error_H))
 
+    ############################# Plot solution ################################
 
-    U_pred = griddata(X_star, u_pred.flatten(), (X, T), method='cubic')
-    V_pred = griddata(X_star, v_pred.flatten(), (X, T), method='cubic')
-    H_pred = griddata(X_star, h_pred.flatten(), (X, T), method='cubic')
-
-    FU_pred = griddata(X_star, f_u_pred.flatten(), (X, T), method='cubic')
-    FV_pred = griddata(X_star, f_v_pred.flatten(), (X, T), method='cubic')
-
-    plt.imshow(np.transpose(H_pred), interpolation='nearest', cmap='YlGnBu',
-               extent=[lb[1], ub[1], lb[0], ub[0]], origin='lower', aspect='auto')
-    plt.xlabel('$t$')
-    plt.ylabel('$x$')
-    plt.colorbar()
-    plt.savefig("predicted_schrodinger.png")
-    plt.show()
-
-    rk4_x, H = schrodinger(-5, 5, 257, 0, np.pi/2., 200)
-
-    error_H = np.linalg.norm(H-H_pred,2)/np.linalg.norm(H,2)
-    print('RK4 Error H: %e' % (error_H))
-
-    plt.imshow(H.T, interpolation='nearest', cmap='YlGnBu',
-            extent=[0, np.pi/2, -5, 5], origin='lower', aspect='auto')
-    plt.xlabel('$t$')
-    plt.ylabel('$x$')
-    plt.colorbar()
-    plt.savefig("rk4_schrodinger.png")
-    plt.show()
-
-    error_H = np.linalg.norm(Exact_h[:,75]-H_pred[75,:],2)/np.linalg.norm(Exact_h[:,75],2)
-    print('RK4 Error H at time step = 0.59: %e' % (error_H))
-    error_H = np.linalg.norm(H[75,:]-H_pred[75,:],2)/np.linalg.norm(H[75,:],2)
-    print('RK4 Error H at time step = 0.59: %e' % (error_H))
-
-    plt.plot(rk4_x, H[75,:], 'b-', linewidth = 2, label = 'Exact')
-    plt.plot(x, H_pred[75,:], 'r--', linewidth = 2, label = 'Prediction')
-    plt.title('$t = 0.59$', fontsize=10)
+    plt.imshow(H_pred, interpolation='nearest', cmap='rainbow',
+               extent=[lb[0], ub[0], lb[1], ub[1]], origin='lower', aspect='auto')
+    plt.title('|h(x,t)|')
     plt.xlabel('$x$')
-    plt.ylabel('$|h(x,t)|$')
-    plt.legend(frameon=False)
-    plt.savefig("predicted_vs_rk4_schrondinger_time_59.png")
+    plt.ylabel('$t$')
+    plt.colorbar()
+    plt.savefig("predicted_peregrine_solition.png")
     plt.show()
 
-    error_H = np.linalg.norm(Exact_h[:,100]-H_pred[100,:],2)/np.linalg.norm(Exact_h[:,100],2)
-    print('RK4 Error H at time step = 0.79: %e' % (error_H))
-    error_H = np.linalg.norm(H[100,:]-H_pred[100,:],2)/np.linalg.norm(H[100,:],2)
-    print('RK4 Error H at time step = 0.79: %e' % (error_H))
-
-    plt.plot(rk4_x, H[100,:], 'b-', linewidth = 2, label = 'Exact')
+    plt.plot(x, Exact_h[100,:], 'b-', linewidth = 2, label = 'Exact')
     plt.plot(x, H_pred[100,:], 'r--', linewidth = 2, label = 'Prediction')
-    plt.title('$t = 0.79$', fontsize=10)
+    plt.title('$t = 0$', fontsize=10)
     plt.xlabel('$x$')
     plt.ylabel('$|h(x,t)|$')
     plt.legend(frameon=False)
-    plt.savefig("predicted_vs_rk4_schrodinger_time_79.png")
-    plt.show()
-
-    error_H = np.linalg.norm(Exact_h[:,125]-H_pred[125,:],2)/np.linalg.norm(Exact_h[:,125],2)
-    print('RK4 Error H at time step = 0.98: %e' % (error_H))
-    error_H = np.linalg.norm(H[125,:]-H_pred[125,:],2)/np.linalg.norm(H[125,:],2)
-    print('RK4 Error H at time step = 0.98: %e' % (error_H))
-
-    plt.plot(rk4_x, H[125,:], 'b-', linewidth = 2, label = 'Exact')
-    plt.plot(x, H_pred[125,:], 'r--', linewidth = 2, label = 'Prediction')
-    plt.title('$t = 0.98$', fontsize=10)
-    plt.xlabel('$x$')
-    plt.ylabel('$|h(x,t)|$')
-    plt.legend(frameon=False)
-    plt.savefig("predicted_vs_rk4_schrodinger_time_98.png")
+    plt.savefig("predicited_vs_exact_peregrine_time_step_0.png")
     plt.show()

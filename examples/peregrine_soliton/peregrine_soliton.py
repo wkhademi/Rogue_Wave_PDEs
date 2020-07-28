@@ -73,8 +73,8 @@ def schrodinger(x0, xN, N, t0, tK, K):
     U_exact[:, :, 1] = np.sin(T) - ((4*np.sin(T) + 8*T*np.cos(T)) / (1 + 4*(T**2) + 4*(X**2)))
     H_exact = np.sqrt(U_exact[:, :, 0]**2 + U_exact[:, :, 1]**2)
 
-    with open('peregrine_soliton_data.npy', 'wb') as solution_file:
-        np.save(solution_file, U_exact)
+    with open('peregrine_soliton_data.npz', 'wb') as solution_file:
+        np.savez(solution_file, U=U_exact, x=x, t=t)
 
     # initial condition for real part of numerical solution to peregrine soliton equation
     U[0, :, 0] = np.cos(t0) - ((4*np.cos(t0) - 8*t0*np.sin(t0)) / (1 + 4*(t0**2) + 4*(x**2)))
@@ -100,9 +100,13 @@ def schrodinger(x0, xN, N, t0, tK, K):
     error = np.linalg.norm(H_exact[600,:] - H[600,:], 2) / np.linalg.norm(H_exact[600,:], 2)
     print('Error at t=0: {}'.format(error))
 
-    plt.plot(x, H[600,:])
+    plt.plot(x[1750:2251], H_exact[600,1750:2251], 'b-', linewidth=2, label='Exact')
+    plt.plot(x[1750:2251], H[600,1750:2251], 'r--', linewidth=2, label='Prediction')
+    plt.title('$t = 0$', fontsize=10)
     plt.xlabel('$x$')
-    plt.ylabel('$|h(x,t=0)|$')
+    plt.ylabel('$|h(x,t)|$')
+    plt.legend(frameon=False)
+    plt.savefig('exact_vs_rk4_peregrine_time_0.png')
     plt.show()
 
     plt.contourf(X, T, H_exact, cmap='rainbow', origin='lower')
