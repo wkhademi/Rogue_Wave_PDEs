@@ -233,8 +233,8 @@ if __name__ == "__main__":
 
     idx_x = np.random.choice(x.shape[0], N0, replace=False)
     x0 = x[idx_x,:]
-    u0 = Exact_u[0:1,idx_x].T
-    v0 = Exact_v[0:1,idx_x].T
+    u0 = Exact_u[100:101,idx_x].T
+    v0 = Exact_v[100:101,idx_x].T
 
     idx_t = np.random.choice(t.shape[0], N_b, replace=False)
     tb = t[idx_t,:]
@@ -272,7 +272,7 @@ if __name__ == "__main__":
     plt.xlabel('$x$')
     plt.ylabel('$t$')
     plt.colorbar()
-    plt.savefig("predicted_peregrine_solition.png")
+    plt.savefig("predicted_peregrine_solition_new.png")
     plt.show()
 
     plt.plot(x, Exact_h[100,:], 'b-', linewidth = 2, label = 'Exact')
@@ -281,5 +281,5 @@ if __name__ == "__main__":
     plt.xlabel('$x$')
     plt.ylabel('$|h(x,t)|$')
     plt.legend(frameon=False)
-    plt.savefig("predicited_vs_exact_peregrine_time_step_0.png")
+    plt.savefig("predicited_vs_exact_peregrine_time_step_0_new.png")
     plt.show()
