@@ -272,7 +272,7 @@ if __name__ == "__main__":
     plt.xlabel('$x$')
     plt.ylabel('$t$')
     plt.colorbar()
-    plt.savefig("predicted_peregrine_solition_new.png")
+    plt.savefig("predicted_peregrine_solition.png")
     plt.show()
 
     plt.plot(x, Exact_h[100,:], 'b-', linewidth = 2, label = 'Exact')
@@ -281,5 +281,5 @@ if __name__ == "__main__":
     plt.xlabel('$x$')
     plt.ylabel('$|h(x,t)|$')
     plt.legend(frameon=False)
-    plt.savefig("predicited_vs_exact_peregrine_time_step_0_new.png")
+    plt.savefig("predicited_vs_exact_peregrine_time_step_0.png")
     plt.show()
