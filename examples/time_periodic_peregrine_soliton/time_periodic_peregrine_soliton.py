@@ -1,5 +1,6 @@
 """ Solving the Time Periodic Peregrine Soliton Equation using a 4th order Runge-Kutta method """
 
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -73,7 +74,7 @@ def schrodinger(x0, xN, N, t0, tK, K):
     U_exact[:, :, 1] = (-3*np.cos(T*(8**0.5))*np.sin(T) + (2**0.5)*np.cosh(2*X)*np.sin(T) - (8**0.5)*np.sin(T*(8**0.5))*np.cos(T)) / ((2**0.5)*np.cosh(2*X) - np.cos(T*(8**0.5)))
     H_exact = np.sqrt(U_exact[:, :, 0]**2 + U_exact[:, :, 1]**2)
 
-    with open('time_periodic_peregrine_soliton_data.npz', 'wb') as solution_file:
+    with open('time_periodic_peregrine_soliton_data1.npz', 'wb') as solution_file:
         np.savez(solution_file, U=U_exact, x=x, t=t)
 
     # initial condition for real and imaginary part of numerical solution to time periodic peregrine soliton equation
@@ -94,16 +95,16 @@ def schrodinger(x0, xN, N, t0, tK, K):
     rel_error = np.linalg.norm(H_exact - H, 2) / np.linalg.norm(H_exact, 2)
     print('Relative error: {}'.format(rel_error))
 
-    error = np.linalg.norm(H_exact[0,:] - H[0,:], 2) / np.linalg.norm(H_exact[0,:], 2)
+    error = np.linalg.norm(H_exact[400,:] - H[400,:], 2) / np.linalg.norm(H_exact[400,:], 2)
     print('Error at t=0: {}'.format(error))
 
-    plt.plot(x[2750:3251], H_exact[0,2750:3251], 'b-', linewidth=2, label='Exact')
-    plt.plot(x[2750:3251], H[0,2750:3251], 'r--', linewidth=2, label='Prediction')
+    plt.plot(x[2750:3251], H_exact[400,2750:3251], 'b-', linewidth=2, label='Exact')
+    plt.plot(x[2750:3251], H[400,2750:3251], 'r--', linewidth=2, label='Prediction')
     plt.title('$t = 0$', fontsize=10)
     plt.xlabel('$x$')
     plt.ylabel('$|h(x,t)|$')
     plt.legend(frameon=False)
-    plt.savefig('exact_vs_rk4_time_periodic_peregrine_time_0_new.png')
+    plt.savefig('exact_vs_rk4_time_periodic_peregrine_time_3.png')
     plt.show()
 
     plt.imshow(H_exact, interpolation='nearest', cmap='rainbow',
@@ -131,4 +132,4 @@ def schrodinger(x0, xN, N, t0, tK, K):
 
 
 if __name__ == '__main__':
-    schrodinger(-150, 150, 6001, 0, 6, 2400)
+    schrodinger(-150, 150, 6001, -1, 6, 2800)
