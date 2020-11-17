@@ -247,7 +247,7 @@ if __name__ == "__main__":
     plt.xlabel('$x$')
     plt.ylabel('$t$')
     plt.colorbar()
-    plt.savefig("predicted_time_periodic_identification_new.png")
+    #plt.savefig("predicted_time_periodic_identification_new.png")
     plt.show()
 
     plt.plot(x, Exact_h[29,:], 'b-', linewidth = 2, label = 'Exact')
@@ -256,5 +256,5 @@ if __name__ == "__main__":
     plt.xlabel('$x$')
     plt.ylabel('$|h(x,t)|$')
     plt.legend(frameon=False)
-    plt.savefig("predicited_vs_exact_time_periodic_time_step_0_identification_new.png")
+    #plt.savefig("predicited_vs_exact_time_periodic_time_step_0_identification_new.png")
     plt.show()

@@ -77,6 +77,9 @@ def schrodinger(x0, xN, N, t0, tK, K):
     with open('time_periodic_peregrine_soliton_data1.npz', 'wb') as solution_file:
         np.savez(solution_file, U=U_exact, x=x, t=t)
 
+    lb = np.array([-7.5, -1.0])
+    ub = np.array([7.5, 6.0])
+
     # initial condition for real and imaginary part of numerical solution to time periodic peregrine soliton equation
     U[0, :, :] = U_exact[0, :, :]
 
@@ -92,11 +95,28 @@ def schrodinger(x0, xN, N, t0, tK, K):
 
     H = np.sqrt(U[:, :, 0]**2 + U[:, :, 1]**2)
 
-    rel_error = np.linalg.norm(H_exact - H, 2) / np.linalg.norm(H_exact, 2)
-    print('Relative error: {}'.format(rel_error))
+    rel_error = np.linalg.norm(H_exact[:,2850:3151] - H[:,2850:3151], 2) / np.linalg.norm(H_exact[:,2850:3151], 2)
+    print('Relative error h: {}'.format(rel_error))
+
+    rel_error = np.linalg.norm(U_exact[:,2850:3151,0] - U[:,2850:3151,0], 2) / np.linalg.norm(U_exact[:,2850:3151,0], 2)
+    print('Relative error u: {}'.format(rel_error))
+
+    rel_error = np.linalg.norm(U_exact[:,2850:3151,1] - U[:,2850:3151,1], 2) / np.linalg.norm(U_exact[:,2850:3151,1], 2)
+    print('Relative error v: {}'.format(rel_error))
 
     error = np.linalg.norm(H_exact[400,:] - H[400,:], 2) / np.linalg.norm(H_exact[400,:], 2)
     print('Error at t=0: {}'.format(error))
+
+    plt.imshow(H[:,2850:3151], interpolation='nearest', cmap='rainbow',
+               extent=[lb[0], ub[0], lb[1], ub[1]], origin='lower', aspect='auto')
+    plt.title('$|h(x,t)|$')
+    plt.xlabel('$x$')
+    plt.ylabel('$t$')
+    plt.colorbar()
+    plt.savefig('rk4_time_periodic_soliton.png')
+    plt.show()
+
+    sys.exit()
 
     plt.plot(x[2750:3251], H_exact[400,2750:3251], 'b-', linewidth=2, label='Exact')
     plt.plot(x[2750:3251], H[400,2750:3251], 'r--', linewidth=2, label='Prediction')

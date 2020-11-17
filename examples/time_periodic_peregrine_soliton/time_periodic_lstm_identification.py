@@ -16,16 +16,16 @@ import time
 import scipy.io
 import numpy as np
 import tensorflow as tf
-import tf.keras.backend as K
 import matplotlib.pyplot as plt
+import tensorflow.keras.backend as K
 
 from pyDOE import lhs
-from tf.keras import Model
-from tf.keras.losses import MSE
-from tf.keras.optimizers import Adam
+from tensorflow.keras import Model
 from scipy.interpolate import griddata
-from tf.keras.initializers import Constant
-from tf.keras.layers import LSTM, TimeDistributed, Dense, Input, Layer
+from tensorflow.keras.losses import MSE
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.initializers import Constant
+from tensorflow.keras.layers import LSTM, TimeDistributed, Dense, Input, Layer
 
 
 np.random.seed(1234)
@@ -42,22 +42,21 @@ class PhysicsInformedLayer(Layer):
                                        trainable=True)
 
         self.lambda2 = self.add_weight(name='lambda2',shape=(),
-                                       initializer=Constant(3.0),
+                                       initializer=Constant(-3.0),
                                        trainable=True)
 
         super(PhysicsInformedLayer, self).build(input_shape)
 
     def call(self, input):
-        lambda_1 = K.exp(self.lambda_1)
-        lambda_2 = self.lambda_2
+        lambda1 = K.print_tensor(K.exp(self.lambda1), message='lambda1: ')
+        lambda2 = K.print_tensor(self.lambda2 + 0., message='lambda2: ')
 
-        xt = input[0]
-        uv = input[1]
+        x = input[0]
+        t = input[1]
+        uv = input[2]
 
-        x = xt[:,:,0:1]
-        t = xt[:,:,1:2]
-        u = uv[:,:,0:1]
-        v = uv[:,:,1:2]
+        u = K.reshape(uv[:,:,0:1], shape=(-1, 1))
+        v = K.reshape(uv[:,:,1:2], shape=(-1, 1))
 
         u_t = tf.gradients(u, t)[0]
         u_x = tf.gradients(u, x)[0]
@@ -67,35 +66,40 @@ class PhysicsInformedLayer(Layer):
         v_x = tf.gradients(v, x)[0]
         v_xx = tf.gradients(v_x, x)[0]
 
-        f_u = u_t + lambda_1*v_xx + lambda_2*(u**2 + v**2)*v
-        f_v = v_t - lambda_1*u_xx - lambda_2*(u**2 + v**2)*u
+        f_u = u_t + lambda1*v_xx + lambda2*(u**2 + v**2)*v
+        f_v = v_t - lambda1*u_xx - lambda2*(u**2 + v**2)*u
 
         f_uv = K.concatenate([f_u, f_v], axis=-1)
-        f_uv = K.reshape(f_uv, shape=input[0].get_shape().as_tuple())
+        f_uv = K.reshape(f_uv, shape=(-1,)+input[3])
 
         return f_uv
 
     def compute_output_shape(self, input_shape):
-        return input_shape
+        return input_shape[2].get_shape()
 
 
 class PhysicsInformedNN:
     # Initialize the class
-    def __init__(self, X, u, v, lb, ub):
-        pass
+    def __init__(self, input_shape):
+        self.model = self.build_rnn(input_shape)
 
     def build_rnn(self, input_shape):
         xt = Input(shape=input_shape)
 
-        recurrent1 = LSTM(128, return_sequences=True)(xt)
-        recurrent2 = LSTM(128, return_sequences=True)(recurrent1)
-        uv = TimeDistributed(Dense(2))(recurrent2)
+        # hack for computing gradients in PhysicsInformedLayer
+        x = K.reshape(xt[:,:,0:1], shape=(-1, 1))
+        t = K.reshape(xt[:,:,1:2], shape=(-1, 1))
+        input = K.concatenate([x, t], axis=-1)
+        input = K.reshape(input, shape=(-1,)+input_shape)
 
-        f_uv = PhysicsInformedLayer()([xt, uv])
-        loss = self.physics_informed_loss(f_uv)
+        recurrent1 = LSTM(128, return_sequences=True, unroll=True)(input)
+        #recurrent2 = LSTM(128, return_sequences=True, unroll=True)(recurrent1)
+        uv = TimeDistributed(Dense(2))(recurrent1)
 
-        model = Model(inputs=xt, outputs=uv)
-        model.compile(loss=loss, optimizer=Adam(learning_rate=1e-4))
+        f_uv = PhysicsInformedLayer()([x, t, uv, input_shape])
+
+        model = Model(inputs=xt, outputs=[uv, f_uv])
+        model.compile(loss=MSE, optimizer=Adam(learning_rate=1e-4))
 
         return model
 
@@ -107,31 +111,29 @@ class PhysicsInformedNN:
 
         return loss
 
-    def predict(self, X_star):
-        tf_dict = {self.x0_tf: X_star[:,0:1], self.t0_tf: X_star[:,1:2]}
-        u_star = self.sess.run(self.u0_pred, tf_dict)
-        v_star = self.sess.run(self.v0_pred, tf_dict)
+    def train(self, xt, uv, iterations):
+        zero_const = np.zeros(uv.shape)
 
-        tf_dict = {self.x_f_tf: X_star[:,0:1], self.t_f_tf: X_star[:,1:2]}
-        f_u_star = self.sess.run(self.f_u_pred, tf_dict)
-        f_v_star = self.sess.run(self.f_v_pred, tf_dict)
+        for idx in range(iterations):
+            loss = self.model.train_on_batch(xt, y=[uv, zero_const])
+            print('Iteration %s: %s'%(idx, loss))
 
-        return u_star, v_star, f_u_star, f_v_star
+    def predict(self):
+        pass
 
 
 if __name__ == "__main__":
     lb = np.array([-7.5, -1.0])
     ub = np.array([7.5, 6.0])
 
-    N0 = 50
-    N_b = 50
-    N_f = 20000
+    N0 = 10
+    N_b = 10
 
     with open('time_periodic_peregrine_soliton_data1.npz', 'rb') as solution_file:
         data = np.load(solution_file)
-        t = data['t'][::12,None]  # t in [0,6]
+        t = data['t'][::14,None]  # t in [-1,6]
         x = data['x'][2850:3151,None]  # x in [-7.5, 7.5]
-        Exact = data['U'][::12,2850:3151]
+        Exact = data['U'][::14,2850:3151]
 
     Exact_u = Exact[:,:,0]
     Exact_v = Exact[:,:,1]
@@ -146,22 +148,29 @@ if __name__ == "__main__":
 
     ########################## Train neural network ############################
 
-    idx_x = np.random.choice(x.shape[0], N0, replace=False)
-    x0 = x[idx_x,:]
-    u0 = np.concatenate((Exact_u[0:1,idx_x].T, Exact_u[74:75,idx_x].T), axis=0)
-    v0 = np.concatenate((Exact_v[0:1,idx_x].T, Exact_v[74:75,idx_x].T), axis=0)
+    x_step = len(x) // N0
+    sample_x = x[::x_step,:]
 
-    idx_t = np.random.choice(t.shape[0], N_b, replace=False)
-    tb = t[idx_t,:]
+    t_step = len(t) // N_b
+    sample_t = t[::t_step,:]
 
-    X_f = lb + (ub-lb)*lhs(2, N_f)
+    sample_u = Exact_u[::t_step,::x_step].T
+    sample_v = Exact_v[::t_step,::x_step].T
 
-    model = PhysicsInformedNN(x0, u0, v0, lb, ub)
+    sample_X, sample_T = np.meshgrid(sample_x, sample_t)
+    sample_X = sample_X.T
+    sample_T = sample_T.T
+
+    xt = np.concatenate([sample_X[:,:,None], sample_T[:,:,None]], axis=-1)
+    uv = np.concatenate([sample_u[:,:,None], sample_v[:,:,None]], axis=-1)
+
+    model = PhysicsInformedNN(xt.shape[1:])
 
     start_time = time.time()
-    model.train(0)
+    model.train(xt, uv, 20000)
     elapsed = time.time() - start_time
     print('Training time: %.4f' % (elapsed))
+    sys.exit()
 
     ################### Predict solution and compute error #####################
 

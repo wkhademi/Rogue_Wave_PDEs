@@ -1,5 +1,6 @@
 """ Solving the Peregrine Soliton Equation using a 4th order Runge-Kutta method """
 
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -73,6 +74,9 @@ def schrodinger(x0, xN, N, t0, tK, K):
     U_exact[:, :, 1] = np.sin(T) - ((4*np.sin(T) + 8*T*np.cos(T)) / (1 + 4*(T**2) + 4*(X**2)))
     H_exact = np.sqrt(U_exact[:, :, 0]**2 + U_exact[:, :, 1]**2)
 
+    lb = np.array([-7.5, -2.0])
+    ub = np.array([7.5, 2.0])
+
     with open('peregrine_soliton_data.npz', 'wb') as solution_file:
         np.savez(solution_file, U=U_exact, x=x, t=t)
 
@@ -94,11 +98,19 @@ def schrodinger(x0, xN, N, t0, tK, K):
 
     H = np.sqrt(U[:, :, 0]**2 + U[:, :, 1]**2)
 
-    rel_error = np.linalg.norm(H_exact - H, 2) / np.linalg.norm(H_exact, 2)
-    print('Relative error: {}'.format(rel_error))
+    rel_error = np.linalg.norm(H_exact[400:801:2,1850:2151] - H[400:801:2,1850:2151], 2) / np.linalg.norm(H_exact[400:801:2,1850:2151], 2)
+    print('Relative error h: {}'.format(rel_error))
+
+    rel_error = np.linalg.norm(U_exact[400:801:2,1850:2151,0] - U[400:801:2,1850:2151,0], 2) / np.linalg.norm(U_exact[400:801:2,1850:2151,0], 2)
+    print('Relative error u: {}'.format(rel_error))
+
+    rel_error = np.linalg.norm(U_exact[400:801:2,1850:2151,1] - U[400:801:2,1850:2151,1], 2) / np.linalg.norm(U_exact[400:801:2,1850:2151,1], 2)
+    print('Relative error v: {}'.format(rel_error))
 
     error = np.linalg.norm(H_exact[600,:] - H[600,:], 2) / np.linalg.norm(H_exact[600,:], 2)
     print('Error at t=0: {}'.format(error))
+
+    sys.exit()
 
     plt.plot(x[1750:2251], H_exact[600,1750:2251], 'b-', linewidth=2, label='Exact')
     plt.plot(x[1750:2251], H[600,1750:2251], 'r--', linewidth=2, label='Prediction')
@@ -107,6 +119,16 @@ def schrodinger(x0, xN, N, t0, tK, K):
     plt.ylabel('$|h(x,t)|$')
     plt.legend(frameon=False)
     plt.savefig('exact_vs_rk4_peregrine_time_0.png')
+    plt.show()
+
+    H = H[400:801:2,1850:2151]
+    plt.imshow(H, interpolation='nearest', cmap='rainbow',
+               extent=[lb[0], ub[0], lb[1], ub[1]], origin='lower', aspect='auto')
+    plt.title('|h(x,t)|')
+    plt.xlabel('$x$')
+    plt.ylabel('$t$')
+    plt.colorbar()
+    plt.savefig("rk4_peregrine_solition.png")
     plt.show()
 
     plt.contourf(X, T, H_exact, cmap='rainbow', origin='lower')
