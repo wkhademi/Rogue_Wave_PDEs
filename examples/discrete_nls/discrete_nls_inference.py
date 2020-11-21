@@ -26,27 +26,25 @@ from scipy.interpolate import griddata
 np.random.seed(1234)
 tf.set_random_seed(1234)
 
+g = 1.
 
 class PhysicsInformedNN:
     # Initialize the class
-    def __init__(self, x0, u0, v0, tb, X_f, layers, lb, ub):
+    def __init__(self, x0, u0, v0, X_f, layers, lb, ub, N, m):
         self.idx = 0
 
-        X0 = np.concatenate((x0, 0*x0), 1)  # (x0, 0)
-        X_lb = np.concatenate((0*tb + lb[0], tb), 1)  # (lb[0], tb)
-        X_ub = np.concatenate((0*tb + ub[0], tb), 1)  # (ub[0], tb)
+        t0 = np.concatenate((np.full_like(x0, 0.0), np.full_like(x0, 2*np.pi / 5.), np.full_like(x0, 2 * 2*np.pi / 5.)), axis=0)
+        x0 = np.concatenate((x0, x0, x0), axis=0)
+        X0 = np.concatenate((x0, t0), 1)  # (x0, 0)
+
+        self.N = N
+        self.m = m
 
         self.lb = lb
         self.ub = ub
 
         self.x0 = X0[:,0:1]
         self.t0 = X0[:,1:2]
-
-        self.x_lb = X_lb[:,0:1]
-        self.t_lb = X_lb[:,1:2]
-
-        self.x_ub = X_ub[:,0:1]
-        self.t_ub = X_ub[:,1:2]
 
         self.x_f = X_f[:,0:1]
         self.t_f = X_f[:,1:2]
@@ -65,20 +63,31 @@ class PhysicsInformedNN:
         self.u0_tf = tf.placeholder(tf.float32, shape=[None, self.u0.shape[1]])
         self.v0_tf = tf.placeholder(tf.float32, shape=[None, self.v0.shape[1]])
 
-        self.x_lb_tf = tf.placeholder(tf.float32, shape=[None, self.x_lb.shape[1]])
-        self.t_lb_tf = tf.placeholder(tf.float32, shape=[None, self.t_lb.shape[1]])
-
-        self.x_ub_tf = tf.placeholder(tf.float32, shape=[None, self.x_ub.shape[1]])
-        self.t_ub_tf = tf.placeholder(tf.float32, shape=[None, self.t_ub.shape[1]])
-
         self.x_f_tf = tf.placeholder(tf.float32, shape=[None, self.x_f.shape[1]])
         self.t_f_tf = tf.placeholder(tf.float32, shape=[None, self.t_f.shape[1]])
 
+        self.N_tf = tf.placeholder(tf.int32, shape=())
+        self.m_tf = tf.placeholder(tf.int32, shape=())
+
         # tf Graphs
-        self.u0_pred, self.v0_pred, _ , _ = self.net_uv(self.x0_tf, self.t0_tf)
-        self.u_lb_pred, self.v_lb_pred, self.u_x_lb_pred, self.v_x_lb_pred = self.net_uv(self.x_lb_tf, self.t_lb_tf)
-        self.u_ub_pred, self.v_ub_pred, self.u_x_ub_pred, self.v_x_ub_pred = self.net_uv(self.x_ub_tf, self.t_ub_tf)
-        self.f_u_pred, self.f_v_pred = self.net_f_uv(self.x_f_tf, self.t_f_tf)
+        self.u0_pred, self.v0_pred, _, _ = self.net_uv(self.x_f_tf, self.t_f_tf, self.N_tf, self.m_tf)
+        self.u_pred, self.v_pred, self.u_x_pred, self.v_x_pred, self.f_u_pred, self.f_v_pred = self.net_f_uv(self.x_f_tf, self.t_f_tf, self.N_tf, self.m_tf)
+
+        # reshape data back to spatio-temporal domain layout
+        self.u_pred = tf.reshape(self.u_pred, shape=(self.N_tf, self.m_tf))
+        self.v_pred = tf.reshape(self.v_pred, shape=(self.N_tf, self.m_tf))
+        self.u_x_pred = tf.reshape(self.u_x_pred, shape=(self.N_tf, self.m_tf))
+        self.v_x_pred = tf.reshape(self.v_x_pred, shape=(self.N_tf, self.m_tf))
+
+        # get boundary values to enforce boundary condition
+        self.u_lb_pred = self.u_pred[:, 0]
+        self.u_ub_pred = self.u_pred[:, -1]
+        self.v_lb_pred = self.v_pred[:, 0]
+        self.v_ub_pred = self.v_pred[:, -1]
+        self.u_x_lb_pred = self.u_x_pred[:, 0]
+        self.u_x_ub_pred = self.u_x_pred[:, -1]
+        self.v_x_lb_pred = self.v_x_pred[:, 0]
+        self.v_x_ub_pred = self.v_x_pred[:, -1]
 
         # Loss
         self.loss = tf.reduce_mean(tf.square(self.u0_tf - self.u0_pred)) + \
@@ -99,7 +108,7 @@ class PhysicsInformedNN:
                                                                            'maxls': 50,
                                                                            'ftol' : 1.0 * np.finfo(float).eps})
 
-        self.optimizer_Adam = tf.train.AdamOptimizer()
+        self.optimizer_Adam = tf.train.AdamOptimizer(learning_rate=1e-2)
         self.train_op_Adam = self.optimizer_Adam.minimize(self.loss)
 
         # tf session
@@ -138,41 +147,56 @@ class PhysicsInformedNN:
         Y = tf.add(tf.matmul(H, W), b)
         return Y
 
-    def net_uv(self, x, t):
+    def net_uv(self, x, t, N, m):
         X = tf.concat([x, t], 1)
 
         uv = self.neural_net(X, self.weights, self.biases)
         u = uv[:, 0:1]
         v = uv[:, 1:2]
 
-        u_x = tf.roll(u, -1, axis=0) + tf.roll(u, 1, axis=0)
-        v_x = tf.roll(v, -1, axis=0) + tf.roll(v, 1, axis=0)
+        # reshape so lattice nodes can be shifted at each time step
+        reshaped_u = tf.reshape(u, shape=(N, m))
+        reshaped_v = tf.reshape(v, shape=(N, m))
+
+        u_x = tf.roll(reshaped_u, -1, axis=-1) + tf.roll(reshaped_u, 1, axis=-1)
+        v_x = tf.roll(reshaped_v, -1, axis=-1) + tf.roll(reshaped_v, 1, axis=-1)
+
+        u_x = tf.reshape(u_x, shape=(-1, 1))
+        v_x = tf.reshape(v_x, shape=(-1, 1))
 
         return u, v, u_x, v_x
 
-    def net_f_uv(self, x, t):
-        u, v, u_x, v_x = self.net_uv(x,t)
+    def net_f_uv(self, x, t, N, m):
+        u, v, u_x, v_x = self.net_uv(x, t, N, m)
 
+        # compute partials with respect to time
         u_t = tf.gradients(u, t)[0]
-        u_xx = tf.roll(u, -1, axis=0) - 2*u + tf.roll(u, 1, axis=0)
-
         v_t = tf.gradients(v, t)[0]
-        v_xx = tf.roll(v, -1, axis=0) - 2*v + tf.roll(v, 1, axis=0)
 
-        f_u = u_t + v_xx + v_x*(u**2 + v**2)
-        f_v = v_t - u_xx - u_x*(u**2 + v**2)
+        # reshape so lattice nodes can be shifted at each time step
+        reshaped_u = tf.reshape(u, shape=(N, m))
+        reshaped_v = tf.reshape(v, shape=(N, m))
 
-        return f_u, f_v
+        # compute discrete spatial second derivative
+        u_xx = tf.roll(reshaped_u, -1, axis=-1) - 2*reshaped_u + tf.roll(reshaped_u, 1, axis=-1)
+        v_xx = tf.roll(reshaped_v, -1, axis=-1) - 2*reshaped_v + tf.roll(reshaped_v, 1, axis=-1)
+
+        u_xx = tf.reshape(u_xx, shape=(-1, 1))
+        v_xx = tf.reshape(v_xx, shape=(-1, 1))
+
+        f_u = u_t + v_xx + g*v_x*(u**2 + v**2) + 2.*(1.-g)*(u**2 + v**2)*v - v
+        f_v = v_t - u_xx - g*u_x*(u**2 + v**2) - 2.*(1.-g)*(u**2 + v**2)*u + u
+
+        return u, v, u_x, v_x, f_u, f_v
 
     def callback(self, loss):
         print('Iteration {} - Loss: {}'.format(str(self.idx), str(loss)))
         self.idx += 1
 
     def train(self, nIter):
-        tf_dict = {self.x0_tf: self.x0, self.t0_tf: self.t0,
+        tf_dict = {self.N_tf: self.N, self.m_tf: self.m,
+                   self.x0_tf: self.x0, self.t0_tf: self.t0,
                    self.u0_tf: self.u0, self.v0_tf: self.v0,
-                   self.x_lb_tf: self.x_lb, self.t_lb_tf: self.t_lb,
-                   self.x_ub_tf: self.x_ub, self.t_ub_tf: self.t_ub,
                    self.x_f_tf: self.x_f, self.t_f_tf: self.t_f}
 
         start_time = time.time()
@@ -187,17 +211,21 @@ class PhysicsInformedNN:
                       (it, loss_value, elapsed))
                 start_time = time.time()
 
-        self.optimizer.minimize(self.sess,
-                                feed_dict = tf_dict,
-                                fetches = [self.loss],
-                                loss_callback = self.callback)
+        #self.optimizer.minimize(self.sess,
+        #                        feed_dict = tf_dict,
+        #                        fetches = [self.loss],
+        #                        loss_callback = self.callback)
 
-    def predict(self, X_star):
-        tf_dict = {self.x0_tf: X_star[:,0:1], self.t0_tf: X_star[:,1:2]}
+    def predict(self, X_star, N, m):
+        tf_dict = {self.N_tf: N, self.m_tf: m,
+                   self.x0_tf: X_star[:,0:1], self.t0_tf: X_star[:,1:2]}
+        #u_star = self.sess.run(self.u0_pred, tf_dict)
+        #v_star = self.sess.run(self.v0_pred, tf_dict)
+
+        tf_dict = {self.N_tf: N, self.m_tf: m,
+                   self.x_f_tf: X_star[:,0:1], self.t_f_tf: X_star[:,1:2]}
         u_star = self.sess.run(self.u0_pred, tf_dict)
         v_star = self.sess.run(self.v0_pred, tf_dict)
-
-        tf_dict = {self.x_f_tf: X_star[:,0:1], self.t_f_tf: X_star[:,1:2]}
         f_u_star = self.sess.run(self.f_u_pred, tf_dict)
         f_v_star = self.sess.run(self.f_v_pred, tf_dict)
 
@@ -211,9 +239,8 @@ if __name__ == "__main__":
     m = 101  # number of lattice nodes
     x = np.linspace(-50, 50, m)
 
-    N0 = 50
-    N_b = 50
-    N_f = 20000
+    N_total = 5001
+    N = 1000  # number of time steps to sample for training
     layers = [2, 100, 100, 100, 100, 2]
 
     with open('data_AL.mat', 'rb') as solution_file:
@@ -234,38 +261,40 @@ if __name__ == "__main__":
 
     ########################## Train neural network ############################
 
-    idx_x = np.random.choice(x.shape[0], N0, replace=False)
-    x0 = x[idx_x,:]
-    u0 = Exact_u[100:101,idx_x].T
-    v0 = Exact_v[100:101,idx_x].T
+    # initial condition
+    x0 = x[:,None]
+    u0 = np.concatenate((Exact_u[0:1,:].T, Exact_u[1000:1001,:].T, Exact_u[2000:2001,:].T), axis=0)
+    v0 = np.concatenate((Exact_v[0:1,:].T, Exact_v[1000:1001,:].T, Exact_v[2000:2001,:].T), axis=0)
 
-    idx_t = np.random.choice(t.shape[0], N_b, replace=False)
-    tb = t[idx_t,:]
+    # collocation points
+    idx = np.random.choice(t.shape[0], N, replace=False)
+    X_f, T_f = np.meshgrid(x, t[idx])
+    X_f = np.hstack((X_f.flatten()[:,None], T_f.flatten()[:,None]))
+    u0 = Exact_u[idx,:].flatten()[:,None]
+    v0 = Exact_v[idx,:].flatten()[:,None]
 
-    X_f = lb + (ub-lb)*lhs(2, N_f)
-
-    model = PhysicsInformedNN(x0, u0, v0, tb, X_f, layers, lb, ub)
+    model = PhysicsInformedNN(x0, u0, v0, X_f, layers, lb, ub, N, m)
 
     start_time = time.time()
-    model.train(0)
+    model.train(10000)
     elapsed = time.time() - start_time
     print('Training time: %.4f' % (elapsed))
 
     ################### Predict solution and compute error #####################
 
-    u_pred, v_pred, f_u_pred, f_v_pred = model.predict(X_star)
+    u_pred, v_pred, f_u_pred, f_v_pred = model.predict(X_star, N_total, m)
     h_pred = np.sqrt(u_pred**2 + v_pred**2)
     H_pred = griddata(X_star, h_pred.flatten(), (X, T), method='cubic')
 
     error_u = np.linalg.norm(u_star-u_pred,2)/np.linalg.norm(u_star,2)
     error_v = np.linalg.norm(v_star-v_pred,2)/np.linalg.norm(v_star,2)
     error_h = np.linalg.norm(h_star-h_pred,2)/np.linalg.norm(h_star,2)
-    error_H = np.linalg.norm(Exact_h[100,:]-H_pred[100,:],2)/np.linalg.norm(Exact_h[100,:],2)
+    error_H = np.linalg.norm(Exact_h[0,:]-H_pred[0,:],2)/np.linalg.norm(Exact_h[0,:],2)
 
     print('Error u: %e' % (error_u))
     print('Error v: %e' % (error_v))
     print('Error h: %e' % (error_h))
-    print('Error at time step = 0: %e' % (error_H))
+    print('Error at time step = 2: %e' % (error_H))
 
     ############################# Plot solution ################################
 
@@ -275,14 +304,14 @@ if __name__ == "__main__":
     plt.xlabel('$x$')
     plt.ylabel('$t$')
     plt.colorbar()
-    plt.savefig("predicted_DNLS.png")
+    plt.savefig("predicted_DNLS_time_step_all_new.png")
     plt.show()
 
-    plt.plot(x, Exact_h[100,:], 'b-', linewidth = 2, label = 'Exact')
-    plt.plot(x, H_pred[100,:], 'r--', linewidth = 2, label = 'Prediction')
-    plt.title('$t = 0$', fontsize=10)
-    plt.xlabel('$x$')
+    plt.plot(t, Exact_h[:,50], 'b-', linewidth = 2, label = 'Exact')
+    plt.plot(t, H_pred[:,50], 'r--', linewidth = 2, label = 'Prediction')
+    plt.title('$x = 0$', fontsize=10)
+    plt.xlabel('$t$')
     plt.ylabel('$|h(x,t)|$')
     plt.legend(frameon=False)
-    plt.savefig("predicited_vs_exact_DNLS_time_step_0.png")
+    plt.savefig("predicited_vs_exact_DNLS_time_step_all_new.png")
     plt.show()
