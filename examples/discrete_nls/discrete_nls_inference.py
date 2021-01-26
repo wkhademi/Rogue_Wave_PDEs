@@ -30,13 +30,14 @@ g = 1.
 
 class PhysicsInformedNN:
     # Initialize the class
-    def __init__(self, x0, u0, v0, X_f, layers, lb, ub, N, m):
+    def __init__(self, x0, u0, v0, X_f, layers, lb, ub, N_init, N, m):
         self.idx = 0
 
-        t0 = np.concatenate((np.full_like(x0, 0.0), np.full_like(x0, 2*np.pi / 5.), np.full_like(x0, 2 * 2*np.pi / 5.)), axis=0)
+        t0 = np.concatenate((np.full_like(x0, 0.0), np.full_like(x0, 2*np.pi/5.), np.full_like(x0, 4*np.pi/5.)), axis=0)
         x0 = np.concatenate((x0, x0, x0), axis=0)
         X0 = np.concatenate((x0, t0), 1)  # (x0, 0)
 
+        self.N_init = N_init
         self.N = N
         self.m = m
 
@@ -66,11 +67,12 @@ class PhysicsInformedNN:
         self.x_f_tf = tf.placeholder(tf.float32, shape=[None, self.x_f.shape[1]])
         self.t_f_tf = tf.placeholder(tf.float32, shape=[None, self.t_f.shape[1]])
 
+        self.N_init_tf = tf.placeholder(tf.int32, shape=())
         self.N_tf = tf.placeholder(tf.int32, shape=())
         self.m_tf = tf.placeholder(tf.int32, shape=())
 
         # tf Graphs
-        self.u0_pred, self.v0_pred, _, _ = self.net_uv(self.x_f_tf, self.t_f_tf, self.N_tf, self.m_tf)
+        self.u0_pred, self.v0_pred, _, _ = self.net_uv(self.x0_tf, self.t0_tf, self.N_init_tf, self.m_tf)
         self.u_pred, self.v_pred, self.u_x_pred, self.v_x_pred, self.f_u_pred, self.f_v_pred = self.net_f_uv(self.x_f_tf, self.t_f_tf, self.N_tf, self.m_tf)
 
         # reshape data back to spatio-temporal domain layout
@@ -194,7 +196,7 @@ class PhysicsInformedNN:
         self.idx += 1
 
     def train(self, nIter):
-        tf_dict = {self.N_tf: self.N, self.m_tf: self.m,
+        tf_dict = {self.N_init_tf: self.N_init, self.N_tf: self.N, self.m_tf: self.m,
                    self.x0_tf: self.x0, self.t0_tf: self.t0,
                    self.u0_tf: self.u0, self.v0_tf: self.v0,
                    self.x_f_tf: self.x_f, self.t_f_tf: self.t_f}
@@ -216,16 +218,14 @@ class PhysicsInformedNN:
         #                        fetches = [self.loss],
         #                        loss_callback = self.callback)
 
-    def predict(self, X_star, N, m):
-        tf_dict = {self.N_tf: N, self.m_tf: m,
+    def predict(self, X_star, N_init, N, m):
+        tf_dict = {self.N_init_tf: N_init, self.m_tf: m,
                    self.x0_tf: X_star[:,0:1], self.t0_tf: X_star[:,1:2]}
-        #u_star = self.sess.run(self.u0_pred, tf_dict)
-        #v_star = self.sess.run(self.v0_pred, tf_dict)
+        u_star = self.sess.run(self.u0_pred, tf_dict)
+        v_star = self.sess.run(self.v0_pred, tf_dict)
 
         tf_dict = {self.N_tf: N, self.m_tf: m,
                    self.x_f_tf: X_star[:,0:1], self.t_f_tf: X_star[:,1:2]}
-        u_star = self.sess.run(self.u0_pred, tf_dict)
-        v_star = self.sess.run(self.v0_pred, tf_dict)
         f_u_star = self.sess.run(self.f_u_pred, tf_dict)
         f_v_star = self.sess.run(self.f_v_pred, tf_dict)
 
@@ -240,7 +240,8 @@ if __name__ == "__main__":
     x = np.linspace(-50, 50, m)
 
     N_total = 5001
-    N = 1000  # number of time steps to sample for training
+    N_init = 3  # number of time steps to sample for initial condition
+    N = 500  # number of time steps to sample for training
     layers = [2, 100, 100, 100, 100, 2]
 
     with open('data_AL.mat', 'rb') as solution_file:
@@ -263,33 +264,32 @@ if __name__ == "__main__":
 
     # initial condition
     x0 = x[:,None]
-    u0 = np.concatenate((Exact_u[0:1,:].T, Exact_u[1000:1001,:].T, Exact_u[2000:2001,:].T), axis=0)
-    v0 = np.concatenate((Exact_v[0:1,:].T, Exact_v[1000:1001,:].T, Exact_v[2000:2001,:].T), axis=0)
+    peak_idx = [0, 1000, 2000]
+    u0 = Exact_u[peak_idx, :].flatten()[:, None]
+    v0 = Exact_v[peak_idx, :].flatten()[:, None]
 
     # collocation points
     idx = np.random.choice(t.shape[0], N, replace=False)
     X_f, T_f = np.meshgrid(x, t[idx])
     X_f = np.hstack((X_f.flatten()[:,None], T_f.flatten()[:,None]))
-    u0 = Exact_u[idx,:].flatten()[:,None]
-    v0 = Exact_v[idx,:].flatten()[:,None]
 
-    model = PhysicsInformedNN(x0, u0, v0, X_f, layers, lb, ub, N, m)
+    model = PhysicsInformedNN(x0, u0, v0, X_f, layers, lb, ub, N_init, N, m)
 
     start_time = time.time()
-    model.train(10000)
+    model.train(30000)
     elapsed = time.time() - start_time
     print('Training time: %.4f' % (elapsed))
 
     ################### Predict solution and compute error #####################
 
-    u_pred, v_pred, f_u_pred, f_v_pred = model.predict(X_star, N_total, m)
+    u_pred, v_pred, f_u_pred, f_v_pred = model.predict(X_star, N_total, N_total, m)
     h_pred = np.sqrt(u_pred**2 + v_pred**2)
     H_pred = griddata(X_star, h_pred.flatten(), (X, T), method='cubic')
 
     error_u = np.linalg.norm(u_star-u_pred,2)/np.linalg.norm(u_star,2)
     error_v = np.linalg.norm(v_star-v_pred,2)/np.linalg.norm(v_star,2)
     error_h = np.linalg.norm(h_star-h_pred,2)/np.linalg.norm(h_star,2)
-    error_H = np.linalg.norm(Exact_h[0,:]-H_pred[0,:],2)/np.linalg.norm(Exact_h[0,:],2)
+    error_H = np.linalg.norm(Exact_h[:,50]-H_pred[:,50],2)/np.linalg.norm(Exact_h[:,50],2)
 
     print('Error u: %e' % (error_u))
     print('Error v: %e' % (error_v))

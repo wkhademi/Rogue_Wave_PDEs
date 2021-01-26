@@ -18,7 +18,7 @@ psi = q * (np.cos(omega*t + 1j*theta) + G*np.cosh(r*n)) / (np.cos(omega*t) + G*n
 psi_mag = np.abs(psi)
 
 with open('discrete_exact_nls_data.npz', 'wb') as solution_file:
-    np.savez(solution_file, U=psi_mag, x=n, t=t)
+    np.savez(solution_file, U=psi, x=n, t=t)
 
 # plot solution over entire spatiotemporal domain
 plt.imshow(psi_mag, interpolation='nearest', cmap='rainbow',
