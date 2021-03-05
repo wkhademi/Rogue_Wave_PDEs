@@ -30,6 +30,7 @@ class PhysicsInformedNN:
     def __init__(self, x0, u0, v0, X_f, layers, lb, ub, N_init, N, m):
         self.idx = 0
 
+        # create input (x,t) pairs for points that have (u,v) solution
         t0 = np.repeat(np.linspace(lb[1], ub[1], N_init), x0.shape[0])[:, None]
         x0 = np.tile(x0, (N_init, 1))
         X0 = np.concatenate((x0, t0), 1)
@@ -236,11 +237,14 @@ class PhysicsInformedNN:
 
 
 if __name__ == "__main__":
-    lb = np.array([-50., 0.])
-    ub = np.array([50., 6*np.pi / 5.])
+    num_periods = 3
+    omega = 5.  # frequency
+    T = 2.*np.pi / omega  # period
+    dt = T / 10.  # time step for sampling solution
 
-    omega = 2.*np.pi / 5.  # period
-    dt = omega / 2.  # time step for sampling solution
+    # define bounds
+    lb = np.array([-50., 0.])
+    ub = np.array([50., num_periods*T])
 
     m = 101  # number of lattice nodes
     N_init = int(np.rint(ub[1] / dt) + 1)  # number of time steps with solution
@@ -248,20 +252,27 @@ if __name__ == "__main__":
     N_total = 3001  # total number of time steps
     layers = [2, 100, 100, 100, 100, 2]
 
-    x = np.linspace(lb[0], ub[0], m)
+    x = np.linspace(lb[0], ub[0], m)  # lattice nodes
 
     with open('discrete_exact_nls_data.npz', 'rb') as solution_file:
         data = np.load(solution_file)
         t = data['t']
         Exact = data['U']
 
+    # get real and imaginary parts of solution
     Exact_u = np.real(Exact)
     Exact_v = np.imag(Exact)
+
+    # compute |h|
     Exact_h = np.sqrt(Exact_u**2 + Exact_v**2)
 
+    # create input grid
     X, T = np.meshgrid(x, t)
 
+    # flatten grid of inputs to vector (t x n x 2) --> (-1, 2)
     X_star = np.hstack((X.flatten()[:, None], T.flatten()[:, None]))
+
+    # flatten grid of solutions to vector (t x n x 1) --> (-1, 1)
     u_star = Exact_u.flatten()[:, None]
     v_star = Exact_v.flatten()[:, None]
     h_star = Exact_h.flatten()[:, None]
@@ -292,15 +303,15 @@ if __name__ == "__main__":
     h_pred = np.sqrt(u_pred**2 + v_pred**2)
     H_pred = griddata(X_star, h_pred.flatten(), (X, T), method='cubic')
 
-    error_u = np.linalg.norm(u_star-u_pred, 2)/np.linalg.norm(u_star, 2)
-    error_v = np.linalg.norm(v_star-v_pred, 2)/np.linalg.norm(v_star, 2)
-    error_h = np.linalg.norm(h_star-h_pred, 2)/np.linalg.norm(h_star, 2)
-    error_H = np.linalg.norm(Exact_h[:, 50]-H_pred[:, 50], 2)/np.linalg.norm(Exact_h[:, 50], 2)
+    error_u = np.linalg.norm(u_star - u_pred, 2) / np.linalg.norm(u_star, 2)
+    error_v = np.linalg.norm(v_star - v_pred, 2) / np.linalg.norm(v_star, 2)
+    error_h = np.linalg.norm(h_star - h_pred, 2) / np.linalg.norm(h_star, 2)
+    error_H = np.linalg.norm(Exact_h[:, 50] - H_pred[:, 50], 2) / np.linalg.norm(Exact_h[:, 50], 2)
 
     print('Error u: %e' % (error_u))
     print('Error v: %e' % (error_v))
     print('Error h: %e' % (error_h))
-    print('Error at time step = 2: %e' % (error_H))
+    print('Error at lattice node x=0: %e' % (error_H))
 
     ############################# Plot solution ################################
 

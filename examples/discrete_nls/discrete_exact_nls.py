@@ -1,19 +1,22 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+num_periods = 3
 omega = 5.  # frequency
 T = 2*np.pi / omega  # period
-theta = -1. * np.arcsinh(omega)
-r = np.arccosh((2 + np.cosh(theta)) / 3.)
-G = -1. * omega / (np.sqrt(3) * np.sinh(r))
-q = 1. / np.sqrt(2)
 
+# define bounds
 lb = np.array([-50, 0])
-ub = np.array([50, 3*T])
+ub = np.array([50, num_periods*T])
+
 n = np.reshape(np.linspace(lb[0], ub[0], 101), (1, 101))  # lattice nodes
 t = np.reshape(np.linspace(lb[1], ub[1], 3001), (3001, 1))  # time steps
 
 # compute exact solution
+theta = -1. * np.arcsinh(omega)
+r = np.arccosh((2 + np.cosh(theta)) / 3.)
+G = -1. * omega / (np.sqrt(3) * np.sinh(r))
+q = 1. / np.sqrt(2)
 psi = q * (np.cos(omega*t + 1j*theta) + G*np.cosh(r*n)) / (np.cos(omega*t) + G*np.cosh(r*n))
 psi_mag = np.abs(psi)
 

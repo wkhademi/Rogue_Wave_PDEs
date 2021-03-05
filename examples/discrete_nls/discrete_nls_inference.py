@@ -1,5 +1,5 @@
 """
-Data-driven inference of the Ablowitz-Ladik (AL) model.
+Data-driven inference of discrete data provided by Stathis.
 
 Code adapted from Physics Informed Neural Networks.
 
